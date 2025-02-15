@@ -205,43 +205,47 @@ func Login(w http.ResponseWriter, r *http.Request) {
 }
 
 func UpdatePreferences(w http.ResponseWriter, r *http.Request) {
-	setCORSHeaders(w)
+	log.Printf("=== Starting Update Preferences Request ===")
+	log.Printf("Request details:\n%s", dumpRequest(r))
 
-	userID := auth.GetUserIDFromContext(r.Context())
-	if userID == uuid.Nil {
-		log.Printf("Unauthorized request to update preferences")
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+	setCORSHeaders(w)
+	if r.Method == "OPTIONS" {
+		log.Printf("Handling OPTIONS request")
+		w.WriteHeader(http.StatusOK)
 		return
 	}
 
 	var req updatePreferencesRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		log.Printf("Failed to decode update preferences request: %v", err)
-		http.Error(w, "Invalid request format", http.StatusBadRequest)
+		sendError(w, "Invalid request format", http.StatusBadRequest)
 		return
 	}
 
-	// Validate storage mode
-	if req.StorageMode != "cloud" && req.StorageMode != "local" {
-		log.Printf("Invalid storage mode: %s", req.StorageMode)
-		http.Error(w, "Invalid storage mode. Must be 'cloud' or 'local'", http.StatusBadRequest)
+	log.Printf("Update preferences request - StorageMode: %s, IsOnboarded: %v", req.StorageMode, req.IsOnboarded)
+
+	// Get user ID from context
+	userID, ok := r.Context().Value("user_id").(uuid.UUID)
+	if !ok {
+		log.Printf("Failed to get user ID from context")
+		sendError(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
-	// Update user preferences
+	// Update user preferences in database
 	_, err := db.Pool.Exec(r.Context(),
 		`UPDATE users 
-		SET storage_mode = $2, is_onboarded = $3, updated_at = CURRENT_TIMESTAMP
-		WHERE id = $1`,
-		userID, req.StorageMode, req.IsOnboarded)
+		SET storage_mode = $1, 
+		    is_onboarded = $2,
+		    updated_at = CURRENT_TIMESTAMP 
+		WHERE id = $3`,
+		req.StorageMode, req.IsOnboarded, userID)
 	if err != nil {
 		log.Printf("Failed to update user preferences: %v", err)
-		http.Error(w, "Failed to update preferences", http.StatusInternalServerError)
+		sendError(w, "Failed to update preferences", http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"message": "Preferences updated successfully",
-	})
+	log.Printf("Successfully updated preferences for user %s", userID)
+	w.WriteHeader(http.StatusOK)
 }

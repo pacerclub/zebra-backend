@@ -1,0 +1,1 @@
+postgres://zebra_backend:4BQGVz2pE2XOQrK@zebra-db.flycast:5432/zebra_backend?sslmode=disable
