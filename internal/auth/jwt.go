@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 var jwtKey = []byte(getJWTSecret())
@@ -22,15 +23,19 @@ func getJWTSecret() string {
 	return secret
 }
 
+type userContextKey string
+
+const UserIDKey userContextKey = "user_id"
+
 type Claims struct {
-	UserID    int    `json:"user_id"`
-	Email     string `json:"email"`
-	DeviceID  string `json:"device_id"`
+	UserID    uuid.UUID `json:"user_id"`
+	Email     string    `json:"email"`
+	DeviceID  string    `json:"device_id"`
 	jwt.RegisteredClaims
 }
 
 // GenerateToken creates a new JWT token for a user
-func GenerateToken(userID int, email, deviceID string) (string, error) {
+func GenerateToken(userID uuid.UUID, email, deviceID string) (string, error) {
 	expirationTime := time.Now().Add(24 * 7 * time.Hour) // 1 week
 
 	claims := &Claims{
@@ -69,10 +74,6 @@ func ValidateToken(tokenStr string) (*Claims, error) {
 	return claims, nil
 }
 
-type contextKey string
-
-const UserContextKey contextKey = "user"
-
 // Middleware verifies the JWT token in the Authorization header
 func Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -88,14 +89,31 @@ func Middleware(next http.Handler) http.Handler {
 			return
 		}
 
-		claims, err := ValidateToken(bearerToken[1])
+		tokenString := bearerToken[1]
+		token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+			return jwtKey, nil
+		})
+
 		if err != nil {
 			http.Error(w, "Invalid token", http.StatusUnauthorized)
 			return
 		}
 
-		// Add claims to request context
-		ctx := context.WithValue(r.Context(), UserContextKey, claims)
+		claims, ok := token.Claims.(*Claims)
+		if !ok || !token.Valid {
+			http.Error(w, "Invalid token claims", http.StatusUnauthorized)
+			return
+		}
+
+		// Add user ID to request context
+		ctx := context.WithValue(r.Context(), UserIDKey, claims.UserID)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+func GetUserIDFromContext(ctx context.Context) uuid.UUID {
+	if userID, ok := ctx.Value(UserIDKey).(uuid.UUID); ok {
+		return userID
+	}
+	return uuid.Nil
 }

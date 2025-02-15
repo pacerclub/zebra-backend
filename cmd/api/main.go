@@ -36,7 +36,7 @@ func main() {
 
 	// CORS configuration
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:3000", "https://zebra.pacerclub.cn"},
+		AllowedOrigins:   []string{"http://localhost:3000", "https://zebra.pacerclub.cn", "http://localhost:8080"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
 		ExposedHeaders:   []string{"Link"},
@@ -44,10 +44,17 @@ func main() {
 		MaxAge:           300,
 	}))
 
+	// Handle OPTIONS requests
+	r.Options("/*", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
 	// Public routes
 	r.Group(func(r chi.Router) {
-		r.Post("/api/register", handlers.Register)
-		r.Post("/api/login", handlers.Login)
+		r.Route("/api/auth", func(r chi.Router) {
+			r.Post("/register", handlers.Register)
+			r.Post("/login", handlers.Login)
+		})
 	})
 
 	// Protected routes
@@ -55,7 +62,7 @@ func main() {
 		r.Use(auth.Middleware)
 
 		// Timer sessions
-		r.Route("/api/sessions", func(r chi.Router) {
+		r.Route("/api/auth/sessions", func(r chi.Router) {
 			r.Post("/", handlers.CreateSession)
 			r.Get("/", handlers.ListSessions)
 			r.Put("/{id}", handlers.UpdateSession)
@@ -63,7 +70,7 @@ func main() {
 		})
 
 		// Projects
-		r.Route("/api/projects", func(r chi.Router) {
+		r.Route("/api/auth/projects", func(r chi.Router) {
 			r.Post("/", handlers.CreateProject)
 			r.Get("/", handlers.ListProjects)
 			r.Put("/{id}", handlers.UpdateProject)
@@ -71,7 +78,7 @@ func main() {
 		})
 
 		// Sync
-		r.Route("/api/sync", func(r chi.Router) {
+		r.Route("/api/auth/sync", func(r chi.Router) {
 			r.Post("/", handlers.SyncData)
 			r.Get("/status", handlers.SyncStatus)
 		})

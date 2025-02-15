@@ -5,13 +5,14 @@ import (
 	"errors"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/pacerclub/zebra-backend/internal/db"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type User struct {
-	ID        int       `json:"id"`
+	ID        uuid.UUID `json:"id"`
 	Email     string    `json:"email"`
 	Password  string    `json:"-"` // Never send password in JSON
 	CreatedAt time.Time `json:"created_at"`
@@ -25,12 +26,12 @@ func CreateUser(ctx context.Context, email, password string) (*User, error) {
 		return nil, err
 	}
 
-	user := &User{}
+	user := &User{ID: uuid.New()}
 	err = db.GetDB().QueryRow(ctx,
-		`INSERT INTO users (email, password_hash) 
-		VALUES ($1, $2) 
+		`INSERT INTO users (id, email, password_hash) 
+		VALUES ($1, $2, $3) 
 		RETURNING id, email, created_at, updated_at`,
-		email, string(hashedPassword),
+		user.ID, email, string(hashedPassword),
 	).Scan(&user.ID, &user.Email, &user.CreatedAt, &user.UpdatedAt)
 
 	if err != nil {
@@ -66,7 +67,7 @@ func (u *User) ValidatePassword(password string) bool {
 }
 
 // UpdateLastSync updates the last sync time for a user's device
-func UpdateLastSync(ctx context.Context, userID int, deviceID, deviceType, deviceName string) error {
+func UpdateLastSync(ctx context.Context, userID uuid.UUID, deviceID, deviceType, deviceName string) error {
 	_, err := db.GetDB().Exec(ctx,
 		`INSERT INTO device_sync (user_id, device_id, device_type, device_name)
 		VALUES ($1, $2, $3, $4)
