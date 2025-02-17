@@ -205,47 +205,44 @@ func Login(w http.ResponseWriter, r *http.Request) {
 }
 
 func UpdatePreferences(w http.ResponseWriter, r *http.Request) {
-	log.Printf("=== Starting Update Preferences Request ===")
-	log.Printf("Request details:\n%s", dumpRequest(r))
-
 	setCORSHeaders(w)
 	if r.Method == "OPTIONS" {
-		log.Printf("Handling OPTIONS request")
 		w.WriteHeader(http.StatusOK)
 		return
 	}
 
-	var req updatePreferencesRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Printf("Failed to decode update preferences request: %v", err)
-		sendError(w, "Invalid request format", http.StatusBadRequest)
+	userID := auth.GetUserIDFromContext(r.Context())
+	if userID == uuid.Nil {
+		log.Printf("Unauthorized request to preferences endpoint")
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
-	log.Printf("Update preferences request - StorageMode: %s, IsOnboarded: %v", req.StorageMode, req.IsOnboarded)
+	var prefs struct {
+		StorageMode string `json:"storage_mode"`
+		IsOnboarded bool   `json:"is_onboarded"`
+	}
 
-	// Get user ID from context
-	userID, ok := r.Context().Value("user_id").(uuid.UUID)
-	if !ok {
-		log.Printf("Failed to get user ID from context")
-		sendError(w, "Unauthorized", http.StatusUnauthorized)
+	if err := json.NewDecoder(r.Body).Decode(&prefs); err != nil {
+		log.Printf("Failed to decode preferences: %v", err)
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	// Update user preferences in database
-	_, err := db.Pool.Exec(r.Context(),
-		`UPDATE users 
-		SET storage_mode = $1, 
-		    is_onboarded = $2,
-		    updated_at = CURRENT_TIMESTAMP 
-		WHERE id = $3`,
-		req.StorageMode, req.IsOnboarded, userID)
+	query := `
+		UPDATE users
+		SET storage_mode = $1,
+			is_onboarded = $2,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE id = $3
+	`
+
+	_, err := db.Pool.Exec(r.Context(), query, prefs.StorageMode, prefs.IsOnboarded, userID)
 	if err != nil {
-		log.Printf("Failed to update user preferences: %v", err)
-		sendError(w, "Failed to update preferences", http.StatusInternalServerError)
+		log.Printf("Failed to update preferences: %v", err)
+		http.Error(w, "Failed to update preferences", http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("Successfully updated preferences for user %s", userID)
 	w.WriteHeader(http.StatusOK)
 }

@@ -65,12 +65,26 @@ func SyncData(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Initialize arrays if nil
+		if sessions == nil {
+			sessions = []models.Session{}
+		}
+		if projects == nil {
+			projects = []models.Project{}
+		}
+
 		// Send response
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"sessions": sessions,
-			"projects": projects,
-		})
+		response := SyncResponse{
+			LastSyncTime:    time.Now(),
+			ServerSessions:  sessions,
+			ServerProjects:  projects,
+		}
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			log.Printf("Failed to encode response: %v", err)
+			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+			return
+		}
 		return
 	}
 
@@ -270,6 +284,14 @@ func SyncData(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		serverProjects = append(serverProjects, project)
+	}
+
+	// Initialize arrays if nil
+	if serverSessions == nil {
+		serverSessions = []models.Session{}
+	}
+	if serverProjects == nil {
+		serverProjects = []models.Project{}
 	}
 
 	// Prepare and send response
