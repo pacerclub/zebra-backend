@@ -83,13 +83,13 @@ func main() {
 		r.Route("/auth", func(r chi.Router) {
 			r.Post("/register", http.HandlerFunc(handlers.Register))
 			r.Post("/login", http.HandlerFunc(handlers.Login))
-			r.Post("/preferences", http.HandlerFunc(handlers.UpdatePreferences))
 		})
 
 		r.Group(func(r chi.Router) {
 			r.Use(auth.Middleware)
 
 			// Protected routes
+			r.Post("/auth/preferences", http.HandlerFunc(handlers.UpdatePreferences))
 			r.HandleFunc("/sync", http.HandlerFunc(handlers.SyncData))
 			r.HandleFunc("/sync/status", http.HandlerFunc(handlers.SyncStatus))
 		})
