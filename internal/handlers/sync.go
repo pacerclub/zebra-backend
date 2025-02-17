@@ -93,19 +93,40 @@ func SyncData(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 
-	// Get or create device sync record
-	var deviceLastSyncTime time.Time
-	err = tx.QueryRow(r.Context(), `
-		INSERT INTO device_sync (user_id, device_id, last_sync_time)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (user_id, device_id) 
-		DO UPDATE SET last_sync_time = EXCLUDED.last_sync_time
-		RETURNING last_sync_time
-	`, userID, req.DeviceID, req.LastSyncTime).Scan(&deviceLastSyncTime)
-	if err != nil {
-		log.Printf("Failed to update device sync: %v", err)
-		http.Error(w, fmt.Sprintf("Failed to update device sync: %v", err), http.StatusInternalServerError)
-		return
+	// Process local sessions
+	for _, session := range req.LocalSessions {
+		if session.ID == uuid.Nil {
+			session.ID = uuid.New()
+		}
+		session.UserID = userID
+
+		query := `
+			INSERT INTO timer_sessions (id, user_id, project_id, start_time, end_time, description, device_id)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			ON CONFLICT (id) DO UPDATE
+			SET project_id = EXCLUDED.project_id,
+				start_time = EXCLUDED.start_time,
+				end_time = EXCLUDED.end_time,
+				description = EXCLUDED.description,
+				device_id = EXCLUDED.device_id,
+				updated_at = CURRENT_TIMESTAMP
+			WHERE timer_sessions.user_id = $2
+		`
+
+		_, err = tx.Exec(r.Context(), query,
+			session.ID,
+			session.UserID,
+			session.ProjectID,
+			session.StartTime,
+			session.EndTime,
+			session.Description,
+			session.DeviceID,
+		)
+		if err != nil {
+			log.Printf("Failed to sync session %s: %v", session.ID, err)
+			http.Error(w, fmt.Sprintf("Failed to sync session: %v", err), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// Process local projects
@@ -142,47 +163,6 @@ func SyncData(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Process local sessions
-	for _, session := range req.LocalSessions {
-		if session.ID == uuid.Nil {
-			session.ID = uuid.New()
-		}
-		session.UserID = userID
-
-		var projectID *uuid.UUID
-		if session.ProjectID != nil {
-			projectID = session.ProjectID
-		}
-
-		query := `
-			INSERT INTO timer_sessions (id, user_id, project_id, start_time, end_time, description, device_id)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
-			ON CONFLICT (id) DO UPDATE
-			SET project_id = EXCLUDED.project_id,
-				start_time = EXCLUDED.start_time,
-				end_time = EXCLUDED.end_time,
-				description = EXCLUDED.description,
-				device_id = EXCLUDED.device_id,
-				updated_at = CURRENT_TIMESTAMP
-			WHERE timer_sessions.user_id = $2
-		`
-
-		_, err = tx.Exec(r.Context(), query,
-			session.ID,
-			session.UserID,
-			projectID,
-			session.StartTime,
-			session.EndTime,
-			session.Description,
-			session.DeviceID,
-		)
-		if err != nil {
-			log.Printf("Failed to sync session %s: %v", session.ID, err)
-			http.Error(w, fmt.Sprintf("Failed to sync session: %v", err), http.StatusInternalServerError)
-			return
-		}
-	}
-
 	// Process deleted sessions
 	if len(req.DeletedSessions) > 0 {
 		query := `
@@ -193,8 +173,8 @@ func SyncData(w http.ResponseWriter, r *http.Request) {
 		`
 		_, err = tx.Exec(r.Context(), query, req.DeletedSessions, userID)
 		if err != nil {
-			log.Printf("Failed to process deleted sessions: %v", err)
-			http.Error(w, fmt.Sprintf("Failed to delete sessions: %v", err), http.StatusInternalServerError)
+			log.Printf("Failed to mark sessions as deleted: %v", err)
+			http.Error(w, fmt.Sprintf("Failed to mark sessions as deleted: %v", err), http.StatusInternalServerError)
 			return
 		}
 	}
@@ -209,10 +189,17 @@ func SyncData(w http.ResponseWriter, r *http.Request) {
 		`
 		_, err = tx.Exec(r.Context(), query, req.DeletedProjects, userID)
 		if err != nil {
-			log.Printf("Failed to process deleted projects: %v", err)
-			http.Error(w, fmt.Sprintf("Failed to delete projects: %v", err), http.StatusInternalServerError)
+			log.Printf("Failed to mark projects as deleted: %v", err)
+			http.Error(w, fmt.Sprintf("Failed to mark projects as deleted: %v", err), http.StatusInternalServerError)
 			return
 		}
+	}
+
+	// Commit transaction
+	if err = tx.Commit(r.Context()); err != nil {
+		log.Printf("Failed to commit transaction: %v", err)
+		http.Error(w, fmt.Sprintf("Failed to commit transaction: %v", err), http.StatusInternalServerError)
+		return
 	}
 
 	// Get updated server data
@@ -220,9 +207,9 @@ func SyncData(w http.ResponseWriter, r *http.Request) {
 	sessionQuery := `
 		SELECT id, user_id, project_id, start_time, end_time, description, device_id, is_deleted
 		FROM timer_sessions
-		WHERE user_id = $1 AND updated_at > $2
+		WHERE user_id = $1
 	`
-	rows, err := tx.Query(r.Context(), sessionQuery, userID, deviceLastSyncTime)
+	rows, err := tx.Query(r.Context(), sessionQuery, userID)
 	if err != nil {
 		log.Printf("Failed to fetch server sessions: %v", err)
 		http.Error(w, fmt.Sprintf("Failed to fetch server sessions: %v", err), http.StatusInternalServerError)
@@ -258,9 +245,9 @@ func SyncData(w http.ResponseWriter, r *http.Request) {
 	projectQuery := `
 		SELECT id, user_id, name, description, color, device_id, is_deleted
 		FROM projects
-		WHERE user_id = $1 AND updated_at > $2
+		WHERE user_id = $1
 	`
-	rows, err = tx.Query(r.Context(), projectQuery, userID, deviceLastSyncTime)
+	rows, err = tx.Query(r.Context(), projectQuery, userID)
 	if err != nil {
 		log.Printf("Failed to fetch server projects: %v", err)
 		http.Error(w, fmt.Sprintf("Failed to fetch server projects: %v", err), http.StatusInternalServerError)
@@ -285,13 +272,6 @@ func SyncData(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		serverProjects = append(serverProjects, project)
-	}
-
-	// Commit transaction
-	if err := tx.Commit(r.Context()); err != nil {
-		log.Printf("Failed to commit transaction: %v", err)
-		http.Error(w, fmt.Sprintf("Failed to commit transaction: %v", err), http.StatusInternalServerError)
-		return
 	}
 
 	// Prepare and send response
