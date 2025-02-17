@@ -81,17 +81,17 @@ func main() {
 	// Public routes
 	r.Route("/api", func(r chi.Router) {
 		r.Route("/auth", func(r chi.Router) {
-			r.HandleFunc("/register", handlers.Register).Methods("POST", "OPTIONS")
-			r.HandleFunc("/login", handlers.Login).Methods("POST", "OPTIONS")
-			r.HandleFunc("/preferences", handlers.UpdatePreferences).Methods("POST", "OPTIONS")
+			r.Post("/register", http.HandlerFunc(handlers.Register))
+			r.Post("/login", http.HandlerFunc(handlers.Login))
+			r.Post("/preferences", http.HandlerFunc(handlers.UpdatePreferences))
 		})
 
 		r.Group(func(r chi.Router) {
 			r.Use(auth.Middleware)
 
 			// Protected routes
-			r.HandleFunc("/sync", handlers.SyncData).Methods("GET", "POST", "OPTIONS")
-			r.HandleFunc("/sync/status", handlers.SyncStatus).Methods("GET", "OPTIONS")
+			r.HandleFunc("/sync", http.HandlerFunc(handlers.SyncData))
+			r.HandleFunc("/sync/status", http.HandlerFunc(handlers.SyncStatus))
 		})
 	})
 
