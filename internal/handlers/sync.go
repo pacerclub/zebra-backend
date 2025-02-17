@@ -65,6 +65,13 @@ func SyncData(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Fix ProjectID type issue
+		for i := range sessions {
+			if sessions[i].ProjectID != nil {
+				sessions[i].ProjectID = &sessions[i].ProjectID.UUID
+			}
+		}
+
 		// Send response
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -235,9 +242,7 @@ func SyncData(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("Failed to scan session: %v", err), http.StatusInternalServerError)
 			return
 		}
-		if projectID != uuid.Nil {
-			session.ProjectID = &projectID
-		}
+		session.ProjectID = projectID
 		serverSessions = append(serverSessions, session)
 	}
 
