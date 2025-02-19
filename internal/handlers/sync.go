@@ -49,14 +49,15 @@ func SyncData(w http.ResponseWriter, r *http.Request) {
 	// Get or create device sync record
 	var deviceLastSyncTime time.Time
 	err = tx.QueryRow(r.Context(), `
-		INSERT INTO device_sync (user_id, device_id, last_sync_time)
+		INSERT INTO user_sync_status (user_id, device_id, last_sync_time)
 		VALUES ($1, $2, $3)
-		ON CONFLICT (user_id, device_id) 
-		DO UPDATE SET last_sync_time = EXCLUDED.last_sync_time
+		ON CONFLICT (user_id) 
+		DO UPDATE SET last_sync_time = EXCLUDED.last_sync_time,
+		              device_id = EXCLUDED.device_id
 		RETURNING last_sync_time
 	`, userID, req.DeviceID, req.LastSyncTime).Scan(&deviceLastSyncTime)
 	if err != nil {
-		http.Error(w, "Failed to update device sync", http.StatusInternalServerError)
+		http.Error(w, "Failed to update sync status", http.StatusInternalServerError)
 		return
 	}
 
@@ -225,12 +226,12 @@ func SyncData(w http.ResponseWriter, r *http.Request) {
 	// Update device's sync time
 	now := time.Now()
 	syncQuery := `
-		UPDATE device_sync
+		UPDATE user_sync_status
 		SET last_sync_time = $1,
 			updated_at = CURRENT_TIMESTAMP
-		WHERE user_id = $2 AND device_id = $3
+		WHERE user_id = $2
 	`
-	_, err = tx.Exec(r.Context(), syncQuery, now, userID, req.DeviceID)
+	_, err = tx.Exec(r.Context(), syncQuery, now, userID)
 	if err != nil {
 		http.Error(w, "Failed to update sync status", http.StatusInternalServerError)
 		return
