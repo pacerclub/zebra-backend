@@ -117,7 +117,3 @@ func GetUserIDFromContext(ctx context.Context) uuid.UUID {
 	}
 	return uuid.Nil
 }
-
-func GetJWTKey() []byte {
-	return jwtKey
-}

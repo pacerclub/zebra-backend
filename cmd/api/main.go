@@ -4,7 +4,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -35,63 +34,26 @@ func main() {
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(60 * time.Second))
 
-	// Get allowed origins from environment variable
-	allowedOrigins := []string{"https://zebra.pacerclub.cn"}
-	if origins := os.Getenv("ALLOWED_ORIGINS"); origins != "" {
-		allowedOrigins = strings.Split(origins, ",")
-	}
-	log.Printf("Allowed origins: %v", allowedOrigins)
-
 	// CORS configuration
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   allowedOrigins,
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token", "X-Requested-With", "Origin"},
+		AllowedOrigins:   []string{"http://localhost:3000", "https://zebra.pacerclub.cn", "http://localhost:8080"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
 		ExposedHeaders:   []string{"Link"},
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))
 
-	// Global middleware to ensure CORS headers are always set
-	r.Use(func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			origin := r.Header.Get("Origin")
-			if origin == "" {
-				origin = "*"
-			}
-			for _, allowed := range allowedOrigins {
-				if allowed == "*" || allowed == origin {
-					w.Header().Set("Access-Control-Allow-Origin", origin)
-					break
-				}
-			}
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH")
-			w.Header().Set("Access-Control-Allow-Headers", "Accept, Authorization, Content-Type, X-CSRF-Token, X-Requested-With, Origin")
-			w.Header().Set("Access-Control-Allow-Credentials", "true")
-			
-			if r.Method == "OPTIONS" {
-				w.WriteHeader(http.StatusOK)
-				return
-			}
-			
-			next.ServeHTTP(w, r)
-		})
+	// Handle OPTIONS requests
+	r.Options("/*", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
 	})
 
 	// Public routes
-	r.Route("/api", func(r chi.Router) {
-		r.Route("/auth", func(r chi.Router) {
-			r.Post("/register", http.HandlerFunc(handlers.Register))
-			r.Post("/login", http.HandlerFunc(handlers.Login))
-		})
-
-		r.Group(func(r chi.Router) {
-			r.Use(auth.Middleware)
-
-			// Protected routes
-			r.Post("/auth/preferences", http.HandlerFunc(handlers.UpdatePreferences))
-			r.HandleFunc("/sync", http.HandlerFunc(handlers.SyncData))
-			r.HandleFunc("/sync/status", http.HandlerFunc(handlers.SyncStatus))
+	r.Group(func(r chi.Router) {
+		r.Route("/api/auth", func(r chi.Router) {
+			r.Post("/register", handlers.Register)
+			r.Post("/login", handlers.Login)
 		})
 	})
 
@@ -100,7 +62,7 @@ func main() {
 		r.Use(auth.Middleware)
 
 		// Timer sessions
-		r.Route("/api/sessions", func(r chi.Router) {
+		r.Route("/api/auth/sessions", func(r chi.Router) {
 			r.Post("/", handlers.CreateSession)
 			r.Get("/", handlers.ListSessions)
 			r.Put("/{id}", handlers.UpdateSession)
@@ -108,11 +70,17 @@ func main() {
 		})
 
 		// Projects
-		r.Route("/api/projects", func(r chi.Router) {
+		r.Route("/api/auth/projects", func(r chi.Router) {
 			r.Post("/", handlers.CreateProject)
 			r.Get("/", handlers.ListProjects)
 			r.Put("/{id}", handlers.UpdateProject)
 			r.Delete("/{id}", handlers.DeleteProject)
+		})
+
+		// Sync
+		r.Route("/api/auth/sync", func(r chi.Router) {
+			r.Post("/", handlers.SyncData)
+			r.Get("/status", handlers.SyncStatus)
 		})
 	})
 
